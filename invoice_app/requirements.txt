@@ -1,0 +1,20 @@
+# fastapi
+# uvicorn
+# python-dotenv
+# azure-storage-blob
+# azure-ai-formrecognizer
+# azure-core
+# psycopg2-binary
+# Jinja2
+# python-multipart
+
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+azure-storage-blob==12.19.0
+azure-ai-documentintelligence==1.0.0
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+pillow==10.1.0
+requests==2.31.0
+Jinja2==3.1.2
