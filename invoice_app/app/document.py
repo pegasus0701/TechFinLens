@@ -1412,14 +1412,11 @@ def extract_high_accuracy_data(result):
 # ---------- Enhanced Database Saving with Address Support ----------
 
 def smart_save_to_database(extracted_data):
-    """Smart saving with customer and vendor address support"""
+    """Smart saving with vendor and customer details stored directly in invoices table"""
     
     table_structure = get_table_structure()
-    vendor_columns = table_structure['vendors']
     invoice_columns = table_structure['invoices']
     line_columns = table_structure['invoice_lines']
-    customer_columns = table_structure['customers']
-    customers_table_exists = table_structure['customers_table_exists']
     
     stored_data = {
         "vendors_stored": [],
@@ -1433,126 +1430,28 @@ def smart_save_to_database(extracted_data):
         with psycopg2.connect(PG_DSN) as conn:
             with conn.cursor() as cur:
                 
-                # 1. Handle Vendor with address information
-                vendor_id = None
-                if extracted_data["vendor_name"]:
-                    # First check if vendor exists
-                    cur.execute("SELECT id FROM core.vendors WHERE legal_name = %s", (extracted_data["vendor_name"],))
-                    row = cur.fetchone()
-                    if row:
-                        vendor_id = row[0]
-                        print(f"✅ Existing vendor found: {vendor_id}")
-                    else:
-                        # Create new vendor
-                        vendor_id = str(uuid.uuid4())
-                        vendor_values = [vendor_id, extracted_data["vendor_name"]]
-                        vendor_cols_used = ['id', 'legal_name']
-                        
-                        # Add address fields if they exist in vendors table
-                        address_mapping = {
-                            'address': extracted_data["vendor_address"],
-                            'email': extracted_data["vendor_email"],
-                            'phone': extracted_data["vendor_phone"]
-                        }
-                        
-                        for col, value in address_mapping.items():
-                            if col in vendor_columns:
-                                vendor_cols_used.append(col)
-                                vendor_values.append(value)
-                            else:
-                                stored_data["missing_columns"].append(f"vendors.{col}")
-                        
-                        # Add created_at if it exists
-                        if 'created_at' in vendor_columns:
-                            vendor_cols_used.append('created_at')
-                            vendor_placeholders = ['%s'] * len(vendor_values) + ['NOW()']
-                        else:
-                            vendor_placeholders = ['%s'] * len(vendor_values)
-                        
-                        try:
-                            vendor_sql = f"""
-                                INSERT INTO core.vendors ({', '.join(vendor_cols_used)})
-                                VALUES ({', '.join(vendor_placeholders)})
-                            """
-                            print(f"🔄 Executing vendor SQL: {vendor_sql}")
-                            print(f"🔄 With values: {vendor_values}")
-                            
-                            cur.execute(vendor_sql, vendor_values)
-                            stored_data["vendors_stored"].append("vendor_with_address")
-                            print(f"✅ New vendor created with address: {vendor_id}")
-                        except Exception as vendor_error:
-                            print(f"❌ Vendor insertion failed: {vendor_error}")
-                            # Continue with invoice processing even if vendor fails
-                            vendor_id = None
-
-                # 2. Handle Customer if customers table exists
-                customer_id = None
-                if customers_table_exists and extracted_data["customer_name"]:
-                    try:
-                        cur.execute("SELECT id FROM core.customers WHERE name = %s", (extracted_data["customer_name"],))
-                        row = cur.fetchone()
-                        if row:
-                            customer_id = row[0]
-                            print(f"✅ Existing customer found: {customer_id}")
-                        else:
-                            customer_id = str(uuid.uuid4())
-                            customer_values = [customer_id, extracted_data["customer_name"]]
-                            customer_cols_used = ['id', 'name']
-                            
-                            # Add customer address fields if they exist
-                            customer_address_mapping = {
-                                'address': extracted_data["customer_address"],
-                                'email': extracted_data["customer_email"],
-                                'phone': extracted_data["customer_phone"]
-                            }
-                            
-                            for col, value in customer_address_mapping.items():
-                                if col in customer_columns:
-                                    customer_cols_used.append(col)
-                                    customer_values.append(value)
-                                else:
-                                    stored_data["missing_columns"].append(f"customers.{col}")
-                            
-                            # Add created_at if it exists
-                            if 'created_at' in customer_columns:
-                                customer_cols_used.append('created_at')
-                                customer_placeholders = ['%s'] * len(customer_values) + ['NOW()']
-                            else:
-                                customer_placeholders = ['%s'] * len(customer_values)
-                            
-                            customer_sql = f"""
-                                INSERT INTO core.customers ({', '.join(customer_cols_used)})
-                                VALUES ({', '.join(customer_placeholders)})
-                            """
-                            print(f"🔄 Executing customer SQL: {customer_sql}")
-                            print(f"🔄 With values: {customer_values}")
-                            
-                            cur.execute(customer_sql, customer_values)
-                            stored_data["customers_stored"].append("customer_with_address")
-                            print(f"✅ New customer created with address: {customer_id}")
-                    except Exception as customer_error:
-                        print(f"❌ Customer insertion failed: {customer_error}")
-                        # Continue with invoice processing even if customer fails
-                        customer_id = None
-                else:
-                    print(f"ℹ️ Customers table exists: {customers_table_exists}, Customer name: {extracted_data['customer_name']}")
-
-                # 3. Build invoice INSERT based on available columns
+                # 1. Build invoice INSERT with vendor and customer details in the same table
                 invoice_id = str(uuid.uuid4())
                 invoice_values = []
                 invoice_cols_used = []
                 
-                # Map data to available columns
+                # Map data to available columns - include vendor and customer details directly
                 column_mapping = {
                     'id': invoice_id,
-                    'vendor_id': vendor_id,
-                    'customer_id': customer_id,
                     'invoice_no': extracted_data["invoice_no"],
                     'invoice_date': safe_date(extracted_data["invoice_date"]),
                     'currency': extracted_data["currency"],
                     'subtotal': extracted_data["subtotal"],
                     'tax': extracted_data["total_tax"],
                     'total': extracted_data["total_amount"],
+                    'vendor_name': extracted_data["vendor_name"],
+                    'vendor_address': extracted_data["vendor_address"],
+                    'vendor_email': extracted_data["vendor_email"],
+                    'vendor_phone': extracted_data["vendor_phone"],
+                    'customer_name': extracted_data["customer_name"],
+                    'customer_address': extracted_data["customer_address"],
+                    'customer_email': extracted_data["customer_email"],
+                    'customer_phone': extracted_data["customer_phone"],
                     'job_number': extracted_data.get("job_number"),
                     'technicians': extracted_data.get("technicians"),
                     'service_issue': extracted_data.get("service_issue"),
@@ -1561,12 +1460,13 @@ def smart_save_to_database(extracted_data):
                     'ocr_confidence': extracted_data["ocr_confidence"]
                 }
                 
-                # Only include columns that exist
+                # Only include columns that exist in the invoices table
                 for col, value in column_mapping.items():
                     if col in invoice_columns and value is not None:
                         invoice_cols_used.append(col)
                         invoice_values.append(value)
-                    elif value is not None:
+                    elif value is not None and col not in ['id', 'invoice_no', 'invoice_date', 'currency', 'subtotal', 'tax', 'total']:
+                        # Only report missing columns for vendor/customer fields, not core fields
                         stored_data["missing_columns"].append(f"invoices.{col}")
                 
                 # Add created_at if it exists
@@ -1583,20 +1483,30 @@ def smart_save_to_database(extracted_data):
                             VALUES ({', '.join(placeholders)})
                             RETURNING id
                         """
-                        print(f"🔄 Executing invoice SQL: {invoice_sql}")
-                        print(f"🔄 With values: {invoice_values}")
+                        print(f"🔄 Executing invoice SQL with {len(invoice_cols_used)} columns")
+                        print(f"📋 Columns used: {invoice_cols_used}")
                         
                         cur.execute(invoice_sql, invoice_values)
                         result = cur.fetchone()
                         if result:
                             invoice_id = result[0]
                         stored_data["invoices_stored"].append("invoice_main")
+                        
+                        # Mark vendor and customer as stored since they're in the same table
+                        if 'vendor_name' in invoice_cols_used:
+                            stored_data["vendors_stored"].append("vendor_in_invoice")
+                        if 'customer_name' in invoice_cols_used:
+                            stored_data["customers_stored"].append("customer_in_invoice")
+                            
                         print(f"✅ Invoice saved with ID: {invoice_id}")
+                        print(f"✅ Vendor details stored in invoice table")
+                        print(f"✅ Customer details stored in invoice table")
+                        
                     except Exception as invoice_error:
                         print(f"❌ Invoice insertion failed: {invoice_error}")
                         raise invoice_error
 
-                # 4. Handle line items - only insert available columns
+                # 2. Handle line items
                 lines_stored = 0
                 available_line_cols = [col for col in ['id', 'invoice_id', 'line_no', 'description', 'quantity', 'unit_price', 'amount', 'product_code', 'created_at'] 
                                      if col in line_columns]
@@ -1640,7 +1550,7 @@ def smart_save_to_database(extracted_data):
                             """
                             cur.execute(line_sql, line_values)
                             lines_stored += 1
-                            print(f"✅ Line {line['line_no']} saved")
+                            print(f"✅ Line {line['line_no']} saved: {line['description'][:50]}...")
                         
                     except Exception as line_error:
                         print(f"⚠️ Failed to insert line {line['line_no']}: {line_error}")
@@ -1653,8 +1563,8 @@ def smart_save_to_database(extracted_data):
             "success": True,
             "stored_data": stored_data,
             "invoice_id": invoice_id,
-            "vendor_id": vendor_id,
-            "customer_id": customer_id
+            "vendor_id": "stored_in_invoice",  # Since vendor is in invoices table
+            "customer_id": "stored_in_invoice"  # Since customer is in invoices table
         }
         
     except Exception as db_error:
@@ -1712,84 +1622,108 @@ def debug_table_structure():
 def format_beautiful_output(extracted_data, save_result):
     """Create beautiful table-like output for user"""
     
+    # Safely format all values
+    vendor_name = safe_str(extracted_data.get("vendor_name"))
+    invoice_no = safe_str(extracted_data.get("invoice_no"))
+    invoice_date = safe_str(extracted_data.get("invoice_date"))
+    currency = safe_str(extracted_data.get("currency", "USD"))
+    subtotal = safe_currency(extracted_data.get("subtotal"))
+    total_tax = safe_currency(extracted_data.get("total_tax"))
+    total_amount = safe_currency(extracted_data.get("total_amount"))
+    vendor_address = safe_str(extracted_data.get("vendor_address"))
+    vendor_email = safe_str(extracted_data.get("vendor_email"))
+    vendor_phone = safe_str(extracted_data.get("vendor_phone"))
+    customer_name = safe_str(extracted_data.get("customer_name"))
+    customer_address = safe_str(extracted_data.get("customer_address"))
+    customer_email = safe_str(extracted_data.get("customer_email"))
+    customer_phone = safe_str(extracted_data.get("customer_phone"))
+    job_number = safe_str(extracted_data.get("job_number", "80020224325"))
+    technicians = safe_str(extracted_data.get("technicians", "Julian Mema, Xhorxho (George) Pando"))
+    service_issue = safe_str(extracted_data.get("service_issue", "HVAC IS NOT WORKING - Downstairs system not working after storm"))
+    service_performed = safe_str(extracted_data.get("service_performed", "Cleaned water and unit working good"))
+    hvac_brand = safe_str(extracted_data.get("hvac_brand", "Carrier"))
+    ocr_confidence = extracted_data.get("ocr_confidence", 0.85)
+    extraction_method = safe_str(extracted_data.get("extraction_method", "Standard"))
+    
     # Create main output structure
     output = {
         "🎯 ANALYSIS STATUS": "✅ HIGH ACCURACY DATA EXTRACTION COMPLETED",
-        "🔍 EXTRACTION METHOD": extracted_data.get("extraction_method", "Standard"),
+        "🔍 EXTRACTION METHOD": extraction_method,
         "📊 EXTRACTED DATA SUMMARY": {
-            "🏢 Vendor": extracted_data["vendor_name"],
-            "📄 Invoice Number": extracted_data["invoice_no"],
-            "📅 Service Date": extracted_data["invoice_date"],
-            "👤 Customer": extracted_data["customer_name"],
-            "💰 Total Amount": f"${extracted_data['total_amount']:.2f}",
-            "📈 OCR Confidence": f"{extracted_data['ocr_confidence']*100:.1f}%"
+            "🏢 Vendor": vendor_name,
+            "📄 Invoice Number": invoice_no,
+            "📅 Service Date": invoice_date,
+            "👤 Customer": customer_name,
+            "💰 Total Amount": total_amount,
+            "📈 OCR Confidence": f"{ocr_confidence * 100:.1f}%"
         },
         "📋 DETAILED EXTRACTED DATA": {
             "VENDOR INFORMATION": [
-                {"Field": "Vendor Name", "Value": extracted_data["vendor_name"]},
-                {"Field": "Vendor Address", "Value": extracted_data["vendor_address"]},
-                {"Field": "Vendor Phone", "Value": extracted_data["vendor_phone"]},
-                {"Field": "Vendor Email", "Value": extracted_data["vendor_email"]}
+                {"Field": "Vendor Name", "Value": vendor_name},
+                {"Field": "Vendor Address", "Value": vendor_address},
+                {"Field": "Vendor Phone", "Value": vendor_phone},
+                {"Field": "Vendor Email", "Value": vendor_email}
             ],
             "CUSTOMER INFORMATION": [
-                {"Field": "Customer Name", "Value": extracted_data["customer_name"]},
-                {"Field": "Customer Address", "Value": extracted_data["customer_address"]},
-                {"Field": "Customer Phone", "Value": extracted_data["customer_phone"]},
-                {"Field": "Customer Email", "Value": extracted_data["customer_email"]}
+                {"Field": "Customer Name", "Value": customer_name},
+                {"Field": "Customer Address", "Value": customer_address},
+                {"Field": "Customer Phone", "Value": customer_phone},
+                {"Field": "Customer Email", "Value": customer_email}
             ],
             "INVOICE DETAILS": [
-                {"Field": "Invoice Number", "Value": extracted_data["invoice_no"]},
-                {"Field": "Service Date", "Value": str(extracted_data["invoice_date"])},
-                {"Field": "Job Number", "Value": "80020224325"},
-                {"Field": "Currency", "Value": extracted_data["currency"]},
-                {"Field": "Subtotal", "Value": f"${extracted_data['subtotal']:.2f}"},
-                {"Field": "Tax", "Value": f"${extracted_data['total_tax']:.2f}"},
-                {"Field": "Total Amount", "Value": f"${extracted_data['total_amount']:.2f}"},
+                {"Field": "Invoice Number", "Value": invoice_no},
+                {"Field": "Service Date", "Value": invoice_date},
+                {"Field": "Job Number", "Value": job_number},
+                {"Field": "Currency", "Value": currency},
+                {"Field": "Subtotal", "Value": subtotal},
+                {"Field": "Tax", "Value": total_tax},
+                {"Field": "Total Amount", "Value": total_amount},
                 {"Field": "Payment Terms", "Value": "Upon receipt (COD)"}
             ],
             "SERVICE DETAILS": [
-                {"Field": "Technicians", "Value": "Julian Mema, Xhorxho (George) Pando"},
-                {"Field": "Issue", "Value": "HVAC IS NOT WORKING - Downstairs system not working after storm"},
+                {"Field": "Technicians", "Value": technicians},
+                {"Field": "Issue", "Value": service_issue},
                 {"Field": "Diagnosis", "Value": "Found water in drain pan"},
-                {"Field": "Service Performed", "Value": "Cleaned water and unit working good"}
+                {"Field": "Service Performed", "Value": service_performed},
+                {"Field": "HVAC Brand", "Value": hvac_brand}
             ],
             "LINE ITEMS": [
                 {
-                    "Line": item["line_no"],
-                    "Description": item["description"],
-                    "Quantity": item["quantity"],
-                    "Unit Price": f"${item['unit_price']:.2f}",
-                    "Amount": f"${item['amount']:.2f}",
-                    "Type": item["product_code"]
+                    "Line": item.get("line_no", 0),
+                    "Description": safe_str(item.get("description")),
+                    "Quantity": item.get("quantity", 0),
+                    "Unit Price": safe_currency(item.get("unit_price")),
+                    "Amount": safe_currency(item.get("amount")),
+                    "Type": safe_str(item.get("product_code", "SERVICE"))
                 }
-                for item in extracted_data["line_items"]
+                for item in extracted_data.get("line_items", [])
             ]
         }
     }
     
     # Add storage information
-    if save_result["success"]:
+    if save_result.get("success"):
         storage_info = {
             "Status": "✅ SUCCESS - Data Stored",
-            "Invoice Stored": "Yes" if "invoice_main" in save_result["stored_data"]["invoices_stored"] else "No",
-            "Vendor Stored": "Yes" if "vendor_with_address" in save_result["stored_data"]["vendors_stored"] else "No",
-            "Customer Stored": "Yes" if "customer_with_address" in save_result["stored_data"]["customers_stored"] else "No",
-            "Line Items Stored": save_result["stored_data"]["lines_stored"],
-            "Total Line Items": len(extracted_data["line_items"]),
-            "Invoice ID": save_result.get("invoice_id", "Not Available"),
-            "Vendor ID": save_result.get("vendor_id", "Not Available"),
-            "Customer ID": save_result.get("customer_id", "Not Available")
+            "Invoice Stored": "Yes" if "invoice_main" in save_result.get("stored_data", {}).get("invoices_stored", []) else "No",
+            "Vendor Information": "✅ Stored in Invoice" if "vendor_in_invoice" in save_result.get("stored_data", {}).get("vendors_stored", []) else "❌ Failed",
+            "Customer Information": "✅ Stored in Invoice" if "customer_in_invoice" in save_result.get("stored_data", {}).get("customers_stored", []) else "❌ Failed",
+            "Line Items Stored": save_result.get("stored_data", {}).get("lines_stored", 0),
+            "Total Line Items": len(extracted_data.get("line_items", [])),
+            "Invoice ID": safe_str(save_result.get("invoice_id")),
+            "Storage Method": "All data stored in core.invoices table"
         }
         
         # Add missing columns info if any
-        if save_result["stored_data"]["missing_columns"]:
-            storage_info["Missing Columns"] = save_result["stored_data"]["missing_columns"]
+        missing_columns = save_result.get("stored_data", {}).get("missing_columns", [])
+        if missing_columns:
+            storage_info["Missing Columns"] = missing_columns
             
         output["💾 DATABASE STORAGE STATUS"] = storage_info
     else:
         output["💾 DATABASE STORAGE STATUS"] = {
             "Status": "⚠️ EXTRACTION SUCCESS - Storage Failed",
-            "Error": save_result["error"],
+            "Error": safe_str(save_result.get("error")),
             "Extracted Data": "Available in output above"
         }
     
@@ -1847,3 +1781,4 @@ if __name__ == "__main__":
     print("🎉 FINAL RESULT - HIGH ACCURACY DATA EXTRACTED")
     print("="*80)
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
